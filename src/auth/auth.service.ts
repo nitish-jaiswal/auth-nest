@@ -1,6 +1,7 @@
+import { HttpService } from '@nestjs/axios';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { AxiosError } from 'axios';
+import { firstValueFrom } from 'rxjs';
 import { v4 as uuidv4 } from 'uuid';
 
 interface User {
@@ -12,65 +13,73 @@ interface User {
 
 @Injectable()
 export class AuthService {
-    private readonly dbPath: string;
+    private readonly jsonServerUrl = 'http://localhost:3001/users';
 
-    constructor() {
-        this.dbPath = path.join(process.cwd(), 'db.json');
-    }
-
-    private async readUsers(): Promise<User[]> {
-        try {
-            const data = await fs.readFile(this.dbPath, 'utf8');
-            return JSON.parse(data).users || [];
-        } catch {
-            return [];
-        }
-    }
-
-    private async writeUsers(users: User[]) {
-        await fs.writeFile(this.dbPath, JSON.stringify({ users }, null, 2));
-    }
+    constructor(private readonly httpService: HttpService) { }
 
     async signUp(userData: { username: string; email: string; password: string }) {
-        const users = await this.readUsers();
+        try {
+            const { data: existingByUsername } = await firstValueFrom(
+                this.httpService.get<User[]>(`${this.jsonServerUrl}?username=${userData.username}`)
+            );
 
-        const existingUser = users.find(
-            user => user.username === userData.username || user.email === userData.email
-        );
+            const { data: existingByEmail } = await firstValueFrom(
+                this.httpService.get<User[]>(`${this.jsonServerUrl}?email=${userData.email}`)
+            );
 
-        if (existingUser) {
-            throw new BadRequestException('User already exists');
+            if (existingByUsername.length > 0 || existingByEmail.length > 0) {
+                throw new BadRequestException('User already exists');
+            }
+
+            const newUser = {
+                id: uuidv4(),
+                ...userData
+            };
+
+            const { data } = await firstValueFrom(
+                this.httpService.post<User>(this.jsonServerUrl, newUser)
+            );
+
+            const { password, ...userWithoutPassword } = data;
+            return userWithoutPassword;
+        } catch (error) {
+            if (error instanceof AxiosError) {
+                console.error('SignUp error:', error.response?.data || error.message);
+            }
+            throw error;
         }
-
-        const newUser = {
-            id: uuidv4(),
-            ...userData
-        };
-
-        users.push(newUser);
-        await this.writeUsers(users);
-
-        const { password, ...userWithoutPassword } = newUser;
-        return userWithoutPassword;
     }
 
     async login(credentials: { username: string; password: string }) {
-        const users = await this.readUsers();
+        try {
+            const { data: usersByUsername } = await firstValueFrom(
+                this.httpService.get<User[]>(`${this.jsonServerUrl}?username=${credentials.username}`)
+            );
+            const { data: usersByEmail } = await firstValueFrom(
+                this.httpService.get<User[]>(`${this.jsonServerUrl}?email=${credentials.username}`)
+            );
 
-        const user = users.find(
-            user => (user.username === credentials.username || user.email === credentials.username)
-                && user.password === credentials.password
-        );
+            const users = [...usersByUsername, ...usersByEmail];
+            const user = users.find(
+                u => (u.username === credentials.username || u.email === credentials.username)
+                    && u.password === credentials.password
+            );
 
-        if (!user) {
-            throw new NotFoundException('Invalid credentials');
+            if (!user) {
+                throw new NotFoundException('Invalid credentials');
+            }
+
+            const { password, ...userWithoutPassword } = user;
+            return {
+                user: userWithoutPassword,
+                success: true,
+                message: 'Login successful'
+            };
+        } catch (error) {
+            if (error instanceof AxiosError) {
+                console.error('Login error:', error.response?.data || error.message);
+            }
+            throw error;
         }
-
-        const { password, ...userWithoutPassword } = user;
-        return {
-            user: userWithoutPassword,
-            success: true,
-            message: 'Login successful'
-        };
     }
 }

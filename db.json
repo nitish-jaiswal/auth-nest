@@ -5,6 +5,24 @@
       "username": "johnD",
       "email": "john.doe@example.com",
       "password": "password123"
+    },
+    {
+      "id": 2,
+      "username": "nitish",
+      "email": "nitish@example.com",
+      "password": "12345"
+    },
+    {
+      "id": 2,
+      "username": "john",
+      "email": "john@example.com",
+      "password": "hashedpassword123"
+    },
+    {
+      "id": 5,
+      "username": "johnDoe2",
+      "email": "john.doe2@example.com",
+      "password": "hashedpassword123"
     }
   ]
 }
